@@ -25,8 +25,8 @@ categories: [编程,Python]
 ### 常见的惊群问题
 
 在 Linux 下，我们常见的惊群效应发生于我们使用 `accept` 以及我们 `select` 、`poll` 或 `epoll` 等系统提供的 API 来处理我们的网络链接。
-
-#### accept 惊群
+ 
+#### accept 惊群  
 
 首先我们用一个流程图来复习下我们传统的 `accept` 使用方式
 
@@ -35,71 +35,85 @@ categories: [编程,Python]
 那么在这里存在一种情况，即当一个请求到达时，所有进程/线程都开始 accept ，但是最终只有一个获取成功，我们来写段代码看看
 
 ```c
-#include <stdio.h>
-#include <unistd.h>
-#include <sys/types.h>  
-#include <sys/socket.h>  
-#include <netinet/in.h>  
-#include <arpa/inet.h>  
-#include <assert.h>  
-#include <sys/wait.h>
-#include <string.h>
+#include <arpa/inet.h>
+#include <assert.h>
 #include <errno.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #define SERVER_ADDRESS "0.0.0.0"
 #define SERVER_PORT 10086
 #define WORKER_COUNT 4
 
-int worker_process(int listenfd,int i)
-{
-    while(1){
-        printf("I am work %d, my pid is %d, begin to accept connections \n",i,getpid());
-        struct sockaddr_in client_info;
-        socklen_t client_info_len=sizeof(client_info);
-        int connection =  accept(listenfd,(struct sockaddr *)&client_info,&client_info_len);
-        if (connection!=-1){
-            printf("worker %d accept success\n",i);
-            printf("ip :%s\t",inet_ntoa(client_info.sin_addr));
-            printf("port: %d \n",client_info.sin_port);
-        }else{
-            printf("worker %d accept failed",i);
-        }
-        close(connection);
+int worker_process(int listenfd, int i) {
+  while (1) {
+    printf("I am work %d, my pid is %d, begin to accept connections \n", i,
+           getpid());
+    struct sockaddr_in client_info;
+    socklen_t client_info_len = sizeof(client_info);
+    int connection =
+        accept(listenfd, (struct sockaddr *)&client_info, &client_info_len);
+    if (connection != -1) {
+      printf("worker %d accept success\n", i);
+      printf("ip :%s\t", inet_ntoa(client_info.sin_addr));
+      printf("port: %d \n", client_info.sin_port);
+    } else {
+      printf("worker %d accept failed", i);
     }
-    
-    return 0;
+    close(connection);
+  }
+
+  return 0;
 }
 
-int main()
-{
-    int i = 0;
-    struct sockaddr_in address;  
-    bzero(&address, sizeof(address));  
-    address.sin_family = AF_INET;  
-    inet_pton( AF_INET, SERVER_ADDRESS, &address.sin_addr);  
-    address.sin_port = htons(SERVER_PORT);  
-    int listenfd = socket(PF_INET, SOCK_STREAM, 0);  
-    int ret = bind(listenfd, (struct sockaddr*)&address, sizeof(address));  
-    ret = listen(listenfd, 5);  
-    for (i = 0; i < WORKER_COUNT; i++) {
-        printf("Create worker %d\n", i+1);
-        pid_t pid = fork();
-        /*child  process */
-        if (pid == 0) {
-            worker_process(listenfd, i);
-        }  
-        if (pid < 0) {
-            printf("fork error");
-        }
+int main() {
+  int i = 0;
+  struct sockaddr_in address;
+  bzero(&address, sizeof(address));
+  address.sin_family = AF_INET;
+  inet_pton(AF_INET, SERVER_ADDRESS, &address.sin_addr);
+  address.sin_port = htons(SERVER_PORT);
+  int listenfd = socket(PF_INET, SOCK_STREAM, 0);
+  int ret = bind(listenfd, (struct sockaddr *)&address, sizeof(address));
+  ret = listen(listenfd, 5);
+  for (i = 0; i < WORKER_COUNT; i++) {
+    printf("Create worker %d\n", i + 1);
+    pid_t pid = fork();
+    /*child  process */
+    if (pid == 0) {
+      worker_process(listenfd, i);
     }
-        
-    /*wait child process*/
-    int status;
-    wait(&status);
-    return 0;
+    if (pid < 0) {
+      printf("fork error");
+    }
+  }
+
+  /*wait child process*/
+  int status;
+  wait(&status);
+  return 0;
 }
+
 ```
 
 我们来看看运行的结果
 
 ![image](https://user-images.githubusercontent.com/7054676/55270562-2135cc00-52db-11e9-8ad8-71efe6e7962a.png)
+
+诶？怎么回事？为什么这里没有出现我们想要的现象（一个进程 accept 成功，三个进程 accept 失败）？原因在于在 Linux 2.6 之后，Accept 的惊群问题从内核上被处理了
+
+好，我们接着往下看
+
+#### select/poll/epoll 惊群
+
+我们以 `epoll` 为例，我们来看看传统的工作模式
+
+![image](https://user-images.githubusercontent.com/7054676/55270670-a1a8fc80-52dc-11e9-96c2-49be1aa78e7f.png)
+
+好了，我们来看段代码
+
