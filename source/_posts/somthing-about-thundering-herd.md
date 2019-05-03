@@ -117,7 +117,7 @@ int main() {
 
 好了，我们来看段代码
 
-```
+```c
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>

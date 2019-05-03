@@ -315,6 +315,7 @@ categories: [编程,Python]
       def generate(self, writer):
           for chunk in self.chunks:
               chunk.generate(writer)
+~~~
 
 `_ChunkList` 只是一个节点列表而已。
 
